@@ -4,54 +4,20 @@ import { collection, query, where, getDocs, doc, updateDoc } from "firebase/fire
 import { useAuth } from "../contexts/AuthContext";
 import { Link } from "react-router-dom";
 
-const ZOOM_ACCOUNT_ID = "d3KMA0qQle9-B7D3ksiJw";
-const ZOOM_CLIENT_ID = "voMxDT21RTaHXPVUo3pBnQ";
-const ZOOM_CLIENT_SECRET = "4zsKgo828cNw8Y0PcUPNzQB9KmkRXzKQ";
-
 async function generateZoomLink(session) {
-  try {
-    // Get Zoom access token
-    const tokenRes = await fetch("https://zoom.us/oauth/token?grant_type=account_credentials&account_id=" + ZOOM_ACCOUNT_ID, {
-      method: "POST",
-      headers: {
-        "Authorization": "Basic " + btoa(`${ZOOM_CLIENT_ID}:${ZOOM_CLIENT_SECRET}`),
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-    });
-    const tokenData = await tokenRes.json();
-    if (!tokenData.access_token) throw new Error("No access token");
-
-    // Create meeting
-    const meetingRes = await fetch("https://api.zoom.us/v2/users/me/meetings", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${tokenData.access_token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        topic: `PathwayTutors: ${session.subject} with ${session.studentName}`,
-        type: 2, // Scheduled
-        start_time: `${session.date}T${convertTime(session.time)}`,
-        duration: 60,
-        timezone: "America/New_York",
-        settings: { join_before_host: true, waiting_room: false },
-      }),
-    });
-    const meetingData = await meetingRes.json();
-    return meetingData.join_url;
-  } catch (e) {
-    console.error("Zoom error:", e);
-    // Fallback: return a placeholder link
-    return `https://zoom.us/j/pathway-${session.id}`;
-  }
-}
-
-function convertTime(timeStr) {
-  const [time, period] = timeStr.split(" ");
-  let [h, m] = time.split(":").map(Number);
-  if (period === "PM" && h !== 12) h += 12;
-  if (period === "AM" && h === 12) h = 0;
-  return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:00`;
+  const res = await fetch("/api/createMeeting", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      subject: session.subject,
+      studentName: session.studentName,
+      date: session.date,
+      time: session.time,
+    }),
+  });
+  const data = await res.json();
+  if (!data.zoomLink) throw new Error(data.error || "No zoom link returned");
+  return data.zoomLink;
 }
 
 export default function TutorDashboard() {
@@ -59,6 +25,7 @@ export default function TutorDashboard() {
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [confirming, setConfirming] = useState(null);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     loadSessions();
@@ -78,6 +45,7 @@ export default function TutorDashboard() {
 
   async function confirmSession(session) {
     setConfirming(session.id);
+    setError(null);
     try {
       const zoomLink = await generateZoomLink(session);
       await updateDoc(doc(db, "sessions", session.id), {
@@ -89,6 +57,7 @@ export default function TutorDashboard() {
       ));
     } catch (e) {
       console.error(e);
+      setError("Failed to create Zoom link. Please try again.");
     }
     setConfirming(null);
   }
@@ -116,6 +85,10 @@ export default function TutorDashboard() {
             <p style={styles.subtitle}>Welcome back, {userProfile?.firstName}!</p>
           </div>
         </div>
+
+        {error && (
+          <div style={styles.errorBanner}>{error}</div>
+        )}
 
         {/* Stats */}
         <div style={styles.statsRow}>
@@ -199,10 +172,12 @@ export default function TutorDashboard() {
                       </div>
                       <span className="badge badge-green">Confirmed</span>
                     </div>
-                    {s.zoomLink && (
+                    {s.zoomLink ? (
                       <a href={s.zoomLink} target="_blank" rel="noreferrer" className="btn btn-primary" style={{ marginTop: 12, fontSize: 14, display: "inline-flex" }}>
                         📹 Start Zoom Meeting
                       </a>
+                    ) : (
+                      <div style={styles.noLink}>No Zoom link yet</div>
                     )}
                     <div style={{ marginTop: 12 }}>
                       <button className="btn btn-ghost" onClick={() => completeSession(s.id)} style={{ fontSize: 13 }}>
@@ -227,7 +202,7 @@ export default function TutorDashboard() {
                           <div style={styles.sessionMeta}>Student: {s.studentName}</div>
                           <div style={styles.sessionDate}>📅 {s.date} · ⏰ {s.time}</div>
                         </div>
-                        <span className={`badge ${s.status === "completed" ? "badge-gray" : "badge-gray"}`}>
+                        <span className="badge badge-gray">
                           {s.status === "completed" ? "✓ Completed" : "✕ Cancelled"}
                         </span>
                       </div>
@@ -262,4 +237,6 @@ const styles = {
   notes: { background: "var(--bg)", borderRadius: 8, padding: "10px 14px", fontSize: 13, marginBottom: 12 },
   actions: { display: "flex", gap: 12, marginTop: 12, flexWrap: "wrap" },
   empty: { textAlign: "center", padding: 32 },
+  errorBanner: { background: "#fee2e2", color: "#dc2626", borderRadius: 8, padding: "12px 16px", marginBottom: 20, fontSize: 14 },
+  noLink: { color: "var(--text-muted)", fontSize: 13, marginTop: 12 },
 };
