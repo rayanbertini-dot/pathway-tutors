@@ -1,4 +1,4 @@
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
   const { subject, studentName, date, time } = req.body;
@@ -20,7 +20,7 @@ export default async function handler(req, res) {
     );
     const tokenData = await tokenRes.json();
     if (!tokenData.access_token) {
-      return res.status(500).json({ error: "Failed to get Zoom token" });
+      return res.status(500).json({ error: "Failed to get Zoom token", details: tokenData });
     }
 
     function convertTime(timeStr) {
@@ -49,11 +49,11 @@ export default async function handler(req, res) {
 
     const meetingData = await meetingRes.json();
     if (!meetingData.join_url) {
-      return res.status(500).json({ error: "Failed to create Zoom meeting" });
+      return res.status(500).json({ error: "Failed to create Zoom meeting", details: meetingData });
     }
 
     return res.status(200).json({ zoomLink: meetingData.join_url });
   } catch (e) {
     return res.status(500).json({ error: e.message });
   }
-}
+};
